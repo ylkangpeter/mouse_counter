@@ -38,12 +38,16 @@ namespace MouseClickRecorder
         private Chart eventChart;
         private bool isChartVisible = false; // Track chart visibility
 
+        private TableLayoutPanel mainLayout;
+
         public Form1()
         {
             InitializeComponent();
-            this.Size = new Size(600, 500);
+            this.Size = new Size(800, 800); // Increase form size to accommodate two controls
 
+            InitializeLayout();
             InitializeDataGridView();
+            InitializeChart();
 
             _syncTimer = new Timer
             {
@@ -63,7 +67,6 @@ namespace MouseClickRecorder
                 Checked = IsStartupEnabled("MouseClickRecorder")
             };
             trayMenu.Items.Add(startupMenuItem);
-            trayMenu.Items.Add("Show/Hide Chart", null, OnToggleChart);
             trayMenu.Items.Add("Exit", null, OnExit);
 
             trayIcon = new NotifyIcon
@@ -101,10 +104,23 @@ namespace MouseClickRecorder
             this.Resize += Form1_Resize;
             this.FormClosing += Form1_FormClosing;
 
-            InitializeChart();
-
             // Load data and configure chart
             LoadDataForChart();
+        }
+
+        private void InitializeLayout()
+        {
+            mainLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                RowCount = 2,
+                ColumnCount = 1
+            };
+
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 600)); // Fixed height for grid view
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Chart takes up remaining space
+
+            this.Controls.Add(mainLayout);
         }
 
         private void InitializeDataGridView()
@@ -113,7 +129,8 @@ namespace MouseClickRecorder
             {
                 Dock = DockStyle.Fill,
                 AllowUserToAddRows = false,
-                ReadOnly = true
+                ReadOnly = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
             };
 
             eventLogGridView.Columns.Add("Date", "Date");
@@ -121,7 +138,111 @@ namespace MouseClickRecorder
             eventLogGridView.Columns.Add("MouseLeftClick", "Mouse Left Click");
             eventLogGridView.Columns.Add("MouseRightClick", "Mouse Right Click");
 
-            this.Controls.Add(eventLogGridView);
+            Panel gridViewPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                AutoScroll = true
+            };
+            gridViewPanel.Controls.Add(eventLogGridView);
+
+            mainLayout.Controls.Add(gridViewPanel, 0, 0);
+        }
+
+        private void InitializeChart()
+        {
+            eventChart = new Chart
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.WhiteSmoke,
+                BorderlineColor = Color.LightGray,
+                BorderlineDashStyle = ChartDashStyle.Solid,
+                BorderlineWidth = 1
+            };
+
+            var chartArea = new ChartArea("MainArea")
+            {
+                BackColor = Color.White,
+                BorderColor = Color.LightGray,
+                BorderDashStyle = ChartDashStyle.Solid,
+                BorderWidth = 1,
+                ShadowColor = Color.FromArgb(64, 0, 0, 0),
+                ShadowOffset = 2
+            };
+
+            chartArea.AxisX.Title = "日期";
+            chartArea.AxisX.TitleFont = new Font("Microsoft YaHei", 10, FontStyle.Bold);
+            chartArea.AxisX.LabelStyle.Font = new Font("Microsoft YaHei", 8);
+            chartArea.AxisX.LineColor = Color.Gray;
+            chartArea.AxisX.MajorGrid.LineColor = Color.LightGray;
+            chartArea.AxisX.LabelStyle.Format = "MM-dd";
+            chartArea.AxisX.Interval = 1;
+            chartArea.AxisX.IntervalType = DateTimeIntervalType.Days;
+            chartArea.CursorX.IsUserEnabled = true;
+            chartArea.CursorX.IsUserSelectionEnabled = true;
+            chartArea.AxisX.ScaleView.Zoomable = true;
+            chartArea.AxisX.ScrollBar.IsPositionedInside = true;
+
+            chartArea.AxisY.Title = "事件计数";
+            chartArea.AxisY.TitleFont = new Font("Microsoft YaHei", 10, FontStyle.Bold);
+            chartArea.AxisY.LabelStyle.Font = new Font("Microsoft YaHei", 8);
+            chartArea.AxisY.LineColor = Color.Gray;
+            chartArea.AxisY.MajorGrid.LineColor = Color.LightGray;
+
+            eventChart.ChartAreas.Add(chartArea);
+
+            var legend = new Legend("MainLegend")
+            {
+                Docking = Docking.Top,
+                Alignment = StringAlignment.Center,
+                BackColor = Color.WhiteSmoke,
+                BorderColor = Color.LightGray,
+                BorderDashStyle = ChartDashStyle.Solid,
+                BorderWidth = 1,
+                Font = new Font("Microsoft YaHei", 9),
+                ShadowOffset = 1
+            };
+            eventChart.Legends.Add(legend);
+
+            var seriesKeyboard = new Series("键盘按键")
+            {
+                ChartType = SeriesChartType.Line,
+                Color = Color.RoyalBlue,
+                BorderWidth = 3,
+                MarkerStyle = MarkerStyle.Circle,
+                MarkerSize = 8,
+                MarkerColor = Color.White,
+                MarkerBorderColor = Color.RoyalBlue,
+                MarkerBorderWidth = 2
+            };
+            eventChart.Series.Add(seriesKeyboard);
+
+            var seriesLeftClick = new Series("鼠标左键点击")
+            {
+                ChartType = SeriesChartType.Line,
+                Color = Color.ForestGreen,
+                BorderWidth = 3,
+                MarkerStyle = MarkerStyle.Circle,
+                MarkerSize = 8,
+                MarkerColor = Color.White,
+                MarkerBorderColor = Color.ForestGreen,
+                MarkerBorderWidth = 2
+            };
+            eventChart.Series.Add(seriesLeftClick);
+
+            var seriesRightClick = new Series("鼠标右键点击")
+            {
+                ChartType = SeriesChartType.Line,
+                Color = Color.Crimson,
+                BorderWidth = 3,
+                MarkerStyle = MarkerStyle.Circle,
+                MarkerSize = 8,
+                MarkerColor = Color.White,
+                MarkerBorderColor = Color.Crimson,
+                MarkerBorderWidth = 2
+            };
+            eventChart.Series.Add(seriesRightClick);
+
+            mainLayout.Controls.Add(eventChart, 0, 1);
         }
 
         private void Form1_Resize(object sender, EventArgs e)
@@ -340,66 +461,6 @@ namespace MouseClickRecorder
             }
         }
 
-
-        private void InitializeChart()
-        {
-            eventChart = new Chart
-            {
-                Dock = DockStyle.Fill,
-                Visible = isChartVisible
-            };
-
-            var chartArea = new ChartArea("MainArea")
-            {
-                AxisX = { Title = "Date" },
-                AxisY = { Title = "Event Count" }
-            };
-            eventChart.ChartAreas.Add(chartArea);
-
-            var seriesKeyboard = new Series("Keyboard Presses")
-            {
-                ChartType = SeriesChartType.Line,
-                Color = Color.Blue,
-                BorderWidth = 3
-            };
-            eventChart.Series.Add(seriesKeyboard);
-
-            var seriesLeftClick = new Series("Mouse Left Clicks")
-            {
-                ChartType = SeriesChartType.Line,
-                Color = Color.Green,
-                BorderWidth = 3
-            };
-            eventChart.Series.Add(seriesLeftClick);
-
-            var seriesRightClick = new Series("Mouse Right Clicks")
-            {
-                ChartType = SeriesChartType.Line,
-                Color = Color.Red,
-                BorderWidth = 3
-            };
-            eventChart.Series.Add(seriesRightClick);
-
-            this.Controls.Add(eventChart);
-            eventChart.BringToFront(); // Ensure chart is on top
-        }
-
-        private void OnToggleChart(object sender, EventArgs e)
-        {
-            isChartVisible = !isChartVisible;
-            eventChart.Visible = isChartVisible;
-            if (isChartVisible)
-            {
-                eventChart.BringToFront(); // Ensure chart is visible
-                this.Show(); // Show the form if it's hidden
-                this.WindowState = FormWindowState.Normal;
-            }
-            else
-            {
-                this.Hide(); // Hide the form if chart is hidden
-            }
-        }
-
         private void LoadDataForChart()
         {
             // Sample data - replace with your actual data
@@ -413,9 +474,9 @@ namespace MouseClickRecorder
             //     }
             // }
 
-            var keyboardSeries = eventChart.Series["Keyboard Presses"];
-            var leftClickSeries = eventChart.Series["Mouse Left Clicks"];
-            var rightClickSeries = eventChart.Series["Mouse Right Clicks"];
+            var keyboardSeries = eventChart.Series["键盘按键"];
+            var leftClickSeries = eventChart.Series["鼠标左键点击"];
+            var rightClickSeries = eventChart.Series["鼠标右键点击"];
 
             keyboardSeries.Points.Clear();
             leftClickSeries.Points.Clear();

@@ -39,6 +39,8 @@ namespace MouseClickRecorder
         private bool isChartVisible = false; // Track chart visibility
 
         private TableLayoutPanel mainLayout;
+        private Panel summaryPanel;
+        private Label summaryLabel;
 
         public Form1()
         {
@@ -113,12 +115,13 @@ namespace MouseClickRecorder
             mainLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                RowCount = 2,
+                RowCount = 3, // 增加一行用于显示累计和
                 ColumnCount = 1
             };
 
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 600)); // Fixed height for grid view
-            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Chart takes up remaining space
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 400)); // 固定高度用于表格视图
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 50)); // 固定高度用于累计和
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 300)); // 图表占用剩余空间
 
             this.Controls.Add(mainLayout);
         }
@@ -146,6 +149,24 @@ namespace MouseClickRecorder
             gridViewPanel.Controls.Add(eventLogGridView);
 
             mainLayout.Controls.Add(gridViewPanel, 0, 0);
+
+            // 初始化累计和面板
+            summaryPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Height = 50,
+                BackColor = Color.LightGray
+            };
+
+            summaryLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Microsoft YaHei", 10, FontStyle.Bold)
+            };
+
+            summaryPanel.Controls.Add(summaryLabel);
+            mainLayout.Controls.Add(summaryPanel, 0, 1);
         }
 
         private void InitializeChart()
@@ -242,7 +263,7 @@ namespace MouseClickRecorder
             };
             eventChart.Series.Add(seriesRightClick);
 
-            mainLayout.Controls.Add(eventChart, 0, 1);
+            mainLayout.Controls.Add(eventChart, 0, 2);
         }
 
         private void Form1_Resize(object sender, EventArgs e)
@@ -398,7 +419,6 @@ namespace MouseClickRecorder
                     row.Cells["MouseLeftClick"].Value = leftClick;
                     row.Cells["MouseRightClick"].Value = rightClick;
                     rowUpdated = true;
-                    // Log($"Updated row for {date.ToString("yyyy-MM-dd")}: KeyboardPress={keyboardPress}, MouseLeftClick={leftClick}, MouseRightClick={rightClick}");
                     break;
                 }
             }
@@ -410,13 +430,22 @@ namespace MouseClickRecorder
                 Logger.Instance().Log($"Added new row for {date.ToString("yyyy-MM-dd")}: KeyboardPress={keyboardPress}, MouseLeftClick={leftClick}, MouseRightClick={rightClick}");
             }
 
-            // Check the row count and last row data
-            // Logger.Instance().Log($"Row count: {eventLogGridView.Rows.Count}");
-            if (eventLogGridView.Rows.Count > 0)
+            // 计算总计
+            int totalKeyboardPress = 0;
+            int totalMouseLeftClick = 0;
+            int totalMouseRightClick = 0;
+
+            foreach (DataGridViewRow row in eventLogGridView.Rows)
             {
-                var lastRow = eventLogGridView.Rows[eventLogGridView.Rows.Count - 1];
-                // Logger.Instance().Log($"Last row: {lastRow.Cells["Date"].Value}, {lastRow.Cells["KeyboardPress"].Value}, {lastRow.Cells["MouseLeftClick"].Value}, {lastRow.Cells["MouseRightClick"].Value}");
-            }
+                if (row.IsNewRow) continue;
+
+                totalKeyboardPress += Convert.ToInt32(row.Cells["KeyboardPress"].Value);
+                totalMouseLeftClick += Convert.ToInt32(row.Cells["MouseLeftClick"].Value);
+                totalMouseRightClick += Convert.ToInt32(row.Cells["MouseRightClick"].Value);
+            }  
+            // 更新累计和显示
+            summaryLabel.Text = $"总计 - 键盘按键: {totalKeyboardPress.ToString("N0")}, 鼠标左键点击: {totalMouseLeftClick.ToString("N0")}, 鼠标右键点击: {totalMouseRightClick.ToString("N0")}";
+             
         }
 
         private void SortEventLog()

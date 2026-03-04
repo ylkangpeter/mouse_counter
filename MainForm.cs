@@ -34,10 +34,9 @@ namespace MouseClickRecorder
 
         private FileManager _fileManager;
         private DataImporter _dataImporter;
+        private ConfigManager _configManager;
 
         private Timer _syncTimer;
-        private const int SyncInterval = 10000; // 10 seconds
-        private const int SyncEventThreshold = 50; // Threshold for saving data
 
         private TableLayoutPanel mainLayout;
         private Panel summaryPanel;
@@ -57,6 +56,7 @@ namespace MouseClickRecorder
             // 先初始化 FileManager，因为图表加载需要它
             _fileManager = new FileManager();
             _dataImporter = new DataImporter(_fileManager);
+            _configManager = new ConfigManager();
 
             InitializeLayout();
             InitializeDataGridView();
@@ -64,7 +64,7 @@ namespace MouseClickRecorder
 
             _syncTimer = new Timer
             {
-                Interval = SyncInterval
+                Interval = _configManager.Config.SyncInterval
             };
             
             // 加载按键分布数据

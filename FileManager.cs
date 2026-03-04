@@ -59,29 +59,51 @@ namespace MouseClickRecorder
             }
         }
 
-        public void SaveDataToFile(bool forceSave, DataGridView eventLogGridView)
+        public void SaveDataToFile(bool forceSave, DataGridView eventLogGridView, DateTime currentDate)
         {
-            foreach (DataGridViewRow row in eventLogGridView.Rows)
+            // 只保存当天的数据，历史数据不会变更
+            string todayStr = currentDate.ToString("yyyy-MM-dd");
+            
+            // 使用事务批量提交，减少磁盘IO
+            using (var transaction = _connection.BeginTransaction())
             {
-                if (row.IsNewRow) continue;
-
-                string date = row.Cells["Date"].Value.ToString();
-                int keyboardPress = int.Parse(row.Cells["KeyboardPress"].Value.ToString());
-                int leftClick = int.Parse(row.Cells["MouseLeftClick"].Value.ToString());
-                int rightClick = int.Parse(row.Cells["MouseRightClick"].Value.ToString());
-
-                string insertQuery = @"
-                    INSERT OR REPLACE INTO click_data (date, keyboard_press, mouse_left_click, mouse_right_click)
-                    VALUES (@date, @keyboardPress, @leftClick, @rightClick);
-                ";
-
-                using (SQLiteCommand command = new SQLiteCommand(insertQuery, _connection))
+                try
                 {
-                    command.Parameters.AddWithValue("@date", date);
-                    command.Parameters.AddWithValue("@keyboardPress", keyboardPress);
-                    command.Parameters.AddWithValue("@leftClick", leftClick);
-                    command.Parameters.AddWithValue("@rightClick", rightClick);
-                    command.ExecuteNonQuery();
+                    foreach (DataGridViewRow row in eventLogGridView.Rows)
+                    {
+                        if (row.IsNewRow) continue;
+
+                        string date = row.Cells["Date"].Value.ToString();
+                        
+                        // 只保存当天的数据
+                        if (date != todayStr && !forceSave) continue;
+
+                        int keyboardPress = int.Parse(row.Cells["KeyboardPress"].Value.ToString());
+                        int leftClick = int.Parse(row.Cells["MouseLeftClick"].Value.ToString());
+                        int rightClick = int.Parse(row.Cells["MouseRightClick"].Value.ToString());
+
+                        string insertQuery = @"
+                            INSERT OR REPLACE INTO click_data (date, keyboard_press, mouse_left_click, mouse_right_click)
+                            VALUES (@date, @keyboardPress, @leftClick, @rightClick);
+                        ";
+
+                        using (SQLiteCommand command = new SQLiteCommand(insertQuery, _connection))
+                        {
+                            command.Parameters.AddWithValue("@date", date);
+                            command.Parameters.AddWithValue("@keyboardPress", keyboardPress);
+                            command.Parameters.AddWithValue("@leftClick", leftClick);
+                            command.Parameters.AddWithValue("@rightClick", rightClick);
+                            command.ExecuteNonQuery();
+                        }
+                    }
+                    
+                    // 提交事务
+                    transaction.Commit();
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
                 }
             }
         }
@@ -316,23 +338,38 @@ namespace MouseClickRecorder
             // 创建字典的副本，避免在枚举时被修改
             var keyDistributionCopy = new System.Collections.Generic.Dictionary<int, int>(keyDistribution);
             
-            foreach (var kvp in keyDistributionCopy)
+            // 使用事务批量提交，减少磁盘IO
+            using (var transaction = _connection.BeginTransaction())
             {
-                int keyCode = kvp.Key;
-                int pressCount = kvp.Value;
-                string keyName = GetKeyName(keyCode);
-
-                string insertQuery = @"
-                    INSERT OR REPLACE INTO key_distribution (key_code, key_name, press_count)
-                    VALUES (@keyCode, @keyName, @pressCount);
-                ";
-
-                using (SQLiteCommand command = new SQLiteCommand(insertQuery, _connection))
+                try
                 {
-                    command.Parameters.AddWithValue("@keyCode", keyCode);
-                    command.Parameters.AddWithValue("@keyName", keyName);
-                    command.Parameters.AddWithValue("@pressCount", pressCount);
-                    command.ExecuteNonQuery();
+                    foreach (var kvp in keyDistributionCopy)
+                    {
+                        int keyCode = kvp.Key;
+                        int pressCount = kvp.Value;
+                        string keyName = GetKeyName(keyCode);
+
+                        string insertQuery = @"
+                            INSERT OR REPLACE INTO key_distribution (key_code, key_name, press_count)
+                            VALUES (@keyCode, @keyName, @pressCount);
+                        ";
+
+                        using (SQLiteCommand command = new SQLiteCommand(insertQuery, _connection))
+                        {
+                            command.Parameters.AddWithValue("@keyCode", keyCode);
+                            command.Parameters.AddWithValue("@keyName", keyName);
+                            command.Parameters.AddWithValue("@pressCount", pressCount);
+                            command.ExecuteNonQuery();
+                        }
+                    }
+                    
+                    // 提交事务
+                    transaction.Commit();
+                }
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
                 }
             }
         }

@@ -72,7 +72,7 @@ namespace MouseClickRecorder
             
             _syncTimer.Tick += (sender, e) => 
             {
-                _fileManager.SaveDataToFile(false, eventLogGridView);
+                _fileManager.SaveDataToFile(false, eventLogGridView, currentDate);
                 _fileManager.SaveKeyDistribution(keyDistribution);
             };
             _syncTimer.Start();
@@ -536,7 +536,7 @@ namespace MouseClickRecorder
         {
             Logger.Instance().Log("OnExit triggered");
 
-            _fileManager.SaveDataToFile(true, eventLogGridView);
+            _fileManager.SaveDataToFile(true, eventLogGridView, currentDate);
             _fileManager.SaveKeyDistribution(keyDistribution);
 
             trayIcon.Visible = false;

@@ -1,26 +1,18 @@
-using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
 using System.IO;
 using System.Linq;
-using System.Data.SQLite;
-using ScottPlot;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using Microsoft.Win32;
+using System.Diagnostics;
 
 namespace MouseClickRecorder
 {
     public partial class MainForm : Form
     {
-        private IntPtr _mouseHookID = IntPtr.Zero;
-        private IntPtr _keyboardHookID = IntPtr.Zero;
-        private delegate IntPtr LowLevelProc(int nCode, IntPtr wParam, IntPtr lParam);
-        private LowLevelProc _mouseProc;
-        private LowLevelProc _keyboardProc;
-
-        private DataGridView eventLogGridView;
         private NotifyIcon trayIcon;
         private ContextMenuStrip trayMenu;
         private ToolStripMenuItem startupMenuItem;
@@ -28,19 +20,21 @@ namespace MouseClickRecorder
         public int keyboardPressCount = 0;
         public int mouseLeftClickCount = 0;
         public int mouseRightClickCount = 0;
-        public DateTime currentDate;
-        
-        // 用于跟踪键盘按键状态，避免重复计数
-        private System.Collections.Generic.Dictionary<int, bool> keyStates = new System.Collections.Generic.Dictionary<int, bool>();
-        
-        // 用于跟踪事件数量，达到阈值时保存数据
 
-        
-        // 用于统计按键分布
-        private System.Collections.Generic.Dictionary<int, int> keyDistribution = new System.Collections.Generic.Dictionary<int, int>();
+        private DateTime currentDate;
+        private DataGridView eventLogGridView;
+        private Dictionary<string, DataGridViewRow> dailyDataRows = new Dictionary<string, DataGridViewRow>();
+        private Dictionary<int, int> keyDistribution = new Dictionary<int, int>();
+        private Dictionary<int, bool> keyStates = new Dictionary<int, bool>();
+
+        private IntPtr _mouseHookID = IntPtr.Zero;
+        private IntPtr _keyboardHookID = IntPtr.Zero;
+        private LowLevelProc _mouseProc;
+        private LowLevelProc _keyboardProc;
 
         private FileManager _fileManager;
         private DataImporter _dataImporter;
+
         private Timer _syncTimer;
         private const int SyncInterval = 10000; // 10 seconds
         private const int SyncEventThreshold = 50; // Threshold for saving data
@@ -125,11 +119,8 @@ namespace MouseClickRecorder
 
             // 初始化数据字典
             dailyDataRows.Clear();
-            totalKeyboardPress = 0;
-            totalMouseLeftClick = 0;
-            totalMouseRightClick = 0;
-            
-            // 初始化刷新定时器
+
+            // 设置定时器每1秒更新一次UI
             refreshTimer = new System.Windows.Forms.Timer();
             refreshTimer.Interval = 1000; // 1秒
             refreshTimer.Tick += RefreshTimer_Tick;
@@ -137,7 +128,11 @@ namespace MouseClickRecorder
 
             _fileManager.LoadDataFromFile(this, ref currentDate);
 
-            AddNewRow(currentDate, keyboardPressCount, mouseLeftClickCount, mouseRightClickCount);
+            // 从数据库获取所有历史数据的累计总和
+            var totalCounts = _fileManager.GetTotalCounts();
+            totalKeyboardPress = totalCounts.Item1;
+            totalMouseLeftClick = totalCounts.Item2;
+            totalMouseRightClick = totalCounts.Item3;
 
             _mouseProc = MouseHookCallback;
             _keyboardProc = KeyboardHookCallback;
@@ -171,16 +166,32 @@ namespace MouseClickRecorder
             {
                 Dock = DockStyle.Fill,
                 AllowUserToAddRows = false,
-                ReadOnly = true,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-                RowHeadersVisible = false,
-                AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle { BackColor = Color.LightBlue },
-                DefaultCellStyle = new DataGridViewCellStyle { Font = new Font("Microsoft YaHei", 9) },
-                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle { Font = new Font("Microsoft YaHei", 10, FontStyle.Bold), BackColor = Color.LightGray, Alignment = DataGridViewContentAlignment.MiddleCenter },
-                BorderStyle = BorderStyle.Fixed3D,
-                CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = false
+                ReadOnly = true,
+                BackgroundColor = Color.White,
+                BorderStyle = BorderStyle.None,
+                ColumnHeadersDefaultCellStyle = new DataGridViewCellStyle
+                {
+                    BackColor = Color.FromArgb(0, 120, 212), // Windows 11 蓝色
+                    ForeColor = Color.White,
+                    Font = new Font("Segoe UI", 10, FontStyle.Regular),
+                    Alignment = DataGridViewContentAlignment.MiddleCenter
+                },
+                EnableHeadersVisualStyles = false,
+                DefaultCellStyle = new DataGridViewCellStyle
+                {
+                    Font = new Font("Segoe UI", 9, FontStyle.Regular),
+                    Alignment = DataGridViewContentAlignment.MiddleCenter,
+                    SelectionBackColor = Color.FromArgb(230, 243, 255),
+                    SelectionForeColor = Color.Black
+                },
+                AlternatingRowsDefaultCellStyle = new DataGridViewCellStyle
+                {
+                    BackColor = Color.FromArgb(248, 249, 250)
+                },
+                CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal,
+                GridColor = Color.FromArgb(230, 230, 230)
             };
 
             eventLogGridView.Columns.Add("Date", "日期");
@@ -188,17 +199,18 @@ namespace MouseClickRecorder
             eventLogGridView.Columns.Add("MouseLeftClick", "鼠标左键");
             eventLogGridView.Columns.Add("MouseRightClick", "鼠标右键");
 
-            // 设置列的格式
-            eventLogGridView.Columns["Date"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
-            eventLogGridView.Columns["KeyboardPress"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
-            eventLogGridView.Columns["MouseLeftClick"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
-            eventLogGridView.Columns["MouseRightClick"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            // 设置列宽比例
+            eventLogGridView.Columns["Date"].FillWeight = 25;
+            eventLogGridView.Columns["KeyboardPress"].FillWeight = 25;
+            eventLogGridView.Columns["MouseLeftClick"].FillWeight = 25;
+            eventLogGridView.Columns["MouseRightClick"].FillWeight = 25;
 
+            // 创建包含DataGridView的面板，添加Padding实现Fluent Design
             Panel gridViewPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                AutoScroll = true,
-                BorderStyle = BorderStyle.FixedSingle
+                Padding = new Padding(8),
+                BackColor = Color.White
             };
             gridViewPanel.Controls.Add(eventLogGridView);
 
@@ -413,6 +425,11 @@ namespace MouseClickRecorder
             {
                 this.Hide();
                 trayIcon.Visible = true;
+                isWindowVisible = false;
+            }
+            else if (this.WindowState == FormWindowState.Normal)
+            {
+                isWindowVisible = true;
             }
         }
 
@@ -420,6 +437,7 @@ namespace MouseClickRecorder
         {
             this.Show();
             this.WindowState = FormWindowState.Normal;
+            isWindowVisible = true;
             // trayIcon.Visible = false;
         }
 
@@ -448,302 +466,71 @@ namespace MouseClickRecorder
                     // 显示导入进度对话框
                     using (var progressForm = new Form())
                     {
-                        progressForm.Text = "导入历史数据";
-                        progressForm.Size = new System.Drawing.Size(400, 120);
-                        progressForm.StartPosition = FormStartPosition.CenterScreen;
+                        progressForm.Text = "Importing Data";
+                        progressForm.Size = new Size(400, 150);
+                        progressForm.StartPosition = FormStartPosition.CenterParent;
                         progressForm.FormBorderStyle = FormBorderStyle.FixedDialog;
                         progressForm.MaximizeBox = false;
                         progressForm.MinimizeBox = false;
                         
                         var label = new Label
                         {
-                            Text = "正在导入历史数据...",
-                            Dock = DockStyle.Top,
-                            TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
-                            Padding = new Padding(0, 20, 0, 10)
+                            Text = "Importing historical data, please wait...",
+                            Dock = DockStyle.Fill,
+                            TextAlign = ContentAlignment.MiddleCenter,
+                            Font = new Font("Microsoft YaHei", 10)
                         };
-                        
-                        var progressBar = new ProgressBar
-                        {
-                            Dock = DockStyle.Top,
-                            Style = ProgressBarStyle.Marquee,
-                            MarqueeAnimationSpeed = 30
-                        };
-                        
-                        progressForm.Controls.Add(progressBar);
                         progressForm.Controls.Add(label);
                         
-                        // 在后台线程中执行导入
-                System.Threading.Tasks.Task.Run(() =>
-                {
-                    try
-                    {
-                        // 使用DataImporter导入数据
-                        var importResult = _dataImporter.ImportHistoricalData(openFileDialog.FileName);
-                        
-                        // 导入完成后，在UI线程中更新界面
-                        this.Invoke(new Action(() =>
+                        // 异步执行导入
+                        var importTask = System.Threading.Tasks.Task.Run(() =>
                         {
-                            try
-                            {
-                                // 先关闭进度对话框
-                                progressForm.Close();
-                                
-                                if (importResult.Success)
-                                {
-                                    // 显示成功消息
-                                    string message = $"历史数据导入成功！\n\n导入记录数: {importResult.ImportedCount}\n跳过记录数: {importResult.SkippedCount}\nHome键按键数: {importResult.HomeKeyPresses}";
-                                    MessageBox.Show(message, "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                                }
-                                else
-                                {
-                                    // 显示错误消息
-                                    MessageBox.Show($"导入失败: {importResult.ErrorMessage}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                }
-                                
-                                // 重新启用主窗口
-                                this.Enabled = true;
-                                
-                                // 延迟更新数据和图表，避免UI卡顿
-                                System.Threading.Tasks.Task.Delay(500).ContinueWith((task) =>
-                                {
-                                    this.Invoke(new Action(() =>
-                                    {
-                                        // 重新加载数据
-                                        eventLogGridView.SuspendLayout();
-                                        eventLogGridView.Rows.Clear();
-                                        // 清空数据字典，避免引用已删除的行
-                                        dailyDataRows.Clear();
-                                        totalKeyboardPress = 0;
-                                        totalMouseLeftClick = 0;
-                                        totalMouseRightClick = 0;
-                                        _fileManager.LoadDataFromFile(this, ref currentDate);
-                                        eventLogGridView.ResumeLayout();
-                                        
-                                        // 重新加载图表数据
-                                        LoadDataForChart(formsPlot);
-                                    }));
-                                });
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show($"Error updating UI: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                progressForm.Close();
-                                this.Enabled = true;
-                            }
-                        }));
-                    }
-                    catch (Exception ex)
-                    {
-                        this.Invoke(new Action(() =>
-                        {
-                            MessageBox.Show($"Error importing historical data: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            progressForm.Close();
-                            this.Enabled = true;
-                        }));
-                    }
-                });
+                            _dataImporter.ImportHistoricalData(openFileDialog.FileName);
+                        });
                         
                         // 显示进度对话框
-                        progressForm.ShowDialog();
+                        progressForm.Show(this);
+                        
+                        // 等待导入完成
+                        importTask.Wait();
+                        
+                        // 关闭进度对话框
+                        progressForm.Close();
                     }
+                    
+                    // 导入完成后重新计算累计和
+                    var totalCounts = _fileManager.GetTotalCounts();
+                    totalKeyboardPress = totalCounts.Item1;
+                    totalMouseLeftClick = totalCounts.Item2;
+                    totalMouseRightClick = totalCounts.Item3;
+                    
+                    // 更新累计和显示
+                    if (summaryPicControls != null)
+                    {
+                        summaryPicControls.Item2.Text = totalKeyboardPress.ToString("N0");
+                        summaryPicControls.Item4.Text = totalMouseLeftClick.ToString("N0");
+                        summaryPicControls.Item6.Text = totalMouseRightClick.ToString("N0");
+                    }
+                    
+                    MessageBox.Show("Historical data imported successfully!", "Import Complete", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    
+                    // 刷新数据显示
+                    _fileManager.LoadDataFromFile(this, ref currentDate);
                 }
                 catch (Exception ex)
+                {
+                    MessageBox.Show($"Error importing data: {ex.Message}", "Import Error", 
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                finally
                 {
                     this.Enabled = true;
-                    MessageBox.Show($"Error importing historical data: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
 
-        private void ImportHistoricalData(string filePath)
-        {
-            if (!File.Exists(filePath))
-            {
-                throw new FileNotFoundException("Historical data file not found.");
-            }
-
-            // 获取数据库连接
-            var connection = (_fileManager as FileManager).GetConnection();
-            
-            // 开始事务
-            using (var transaction = connection.BeginTransaction())
-            {
-                try
-                {
-                    int importedCount = 0;
-                    int skippedCount = 0;
-                    int homeKeyPresses = 0;
-
-                    // 首先获取所有已存在的日期，避免重复查询
-                    var existingDates = new HashSet<string>();
-                    string checkDatesQuery = "SELECT date FROM click_data";
-                    using (var command = new SQLiteCommand(checkDatesQuery, connection, transaction))
-                    {
-                        using (var reader = command.ExecuteReader())
-                        {
-                            while (reader.Read())
-                            {
-                                existingDates.Add(reader["date"].ToString());
-                            }
-                        }
-                    }
-
-                    // 读取并处理历史数据
-                    using (StreamReader sr = new StreamReader(filePath))
-                    {
-                        string line;
-                        while ((line = sr.ReadLine()) != null)
-                        {
-                            var parts = line.Split(',');
-                            if (parts.Length == 4)
-                            {
-                                DateTime date = DateTime.Parse(parts[0]);
-                                string dateStr = date.ToString("yyyy-MM-dd");
-                                
-                                // 检查日期是否已存在
-                                if (!existingDates.Contains(dateStr))
-                                {
-                                    int keyboardPress = int.Parse(parts[1]);
-                                    int leftClick = int.Parse(parts[2]);
-                                    int rightClick = int.Parse(parts[3]);
-
-                                    // 插入数据到click_data表
-                                    string insertQuery = @"
-                                        INSERT INTO click_data (date, keyboard_press, mouse_left_click, mouse_right_click)
-                                        VALUES (@date, @keyboardPress, @leftClick, @rightClick);
-                                    ";
-
-                                    using (var command = new SQLiteCommand(insertQuery, connection, transaction))
-                                    {
-                                        command.Parameters.AddWithValue("@date", dateStr);
-                                        command.Parameters.AddWithValue("@keyboardPress", keyboardPress);
-                                        command.Parameters.AddWithValue("@leftClick", leftClick);
-                                        command.Parameters.AddWithValue("@rightClick", rightClick);
-                                        command.ExecuteNonQuery();
-                                    }
-
-                                    // 将键盘数据都映射到Home键（VK_HOME = 0x24）
-                                    if (keyboardPress > 0)
-                                    {
-                                        homeKeyPresses += keyboardPress;
-                                    }
-
-                                    importedCount++;
-                                }
-                                else
-                                {
-                                    skippedCount++;
-                                }
-                            }
-                        }
-                    }
-
-                    // 批量更新Home键的点击次数
-                    if (homeKeyPresses > 0)
-                    {
-                        // 先查询当前Home键的点击次数
-                        int existingHomeCount = 0;
-                        string checkHomeQuery = "SELECT press_count FROM key_distribution WHERE key_code = @keyCode";
-                        using (var command = new SQLiteCommand(checkHomeQuery, connection, transaction))
-                        {
-                            command.Parameters.AddWithValue("@keyCode", 0x24); // Home键
-                            object result = command.ExecuteScalar();
-                            if (result != null && result != DBNull.Value)
-                            {
-                                existingHomeCount = Convert.ToInt32(result);
-                            }
-                        }
-
-                        // 插入或更新Home键数据
-                        string updateHomeQuery = @"
-                            INSERT OR REPLACE INTO key_distribution (key_code, key_name, press_count)
-                            VALUES (@keyCode, @keyName, @pressCount);
-                        ";
-
-                        using (var command = new SQLiteCommand(updateHomeQuery, connection, transaction))
-                        {
-                            command.Parameters.AddWithValue("@keyCode", 0x24); // Home键
-                            command.Parameters.AddWithValue("@keyName", "Home");
-                            command.Parameters.AddWithValue("@pressCount", existingHomeCount + homeKeyPresses);
-                            command.ExecuteNonQuery();
-                        }
-                    }
-
-                    // 提交事务
-                    transaction.Commit();
-
-                    Logger.Instance().Log($"Import completed: {importedCount} records imported, {skippedCount} records skipped, {homeKeyPresses} Home key presses added");
-                }
-                catch (Exception ex)
-                {
-                    // 回滚事务
-                    transaction.Rollback();
-                    Logger.Instance().Log($"Import failed: {ex.Message}");
-                    throw;
-                }
-            }
-        }
-
-        private bool CheckDateExists(DateTime date)
-        {
-            string query = "SELECT COUNT(*) FROM click_data WHERE date = @date";
-            
-            using (var command = new SQLiteCommand(query, (_fileManager as FileManager).GetConnection()))
-            {
-                command.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
-                object result = command.ExecuteScalar();
-                return Convert.ToInt32(result) > 0;
-            }
-        }
-
-        private void InsertClickData(DateTime date, int keyboardPress, int leftClick, int rightClick)
-        {
-            string query = @"
-                INSERT INTO click_data (date, keyboard_press, mouse_left_click, mouse_right_click)
-                VALUES (@date, @keyboardPress, @leftClick, @rightClick);
-            ";
-
-            using (var command = new SQLiteCommand(query, (_fileManager as FileManager).GetConnection()))
-            {
-                command.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
-                command.Parameters.AddWithValue("@keyboardPress", keyboardPress);
-                command.Parameters.AddWithValue("@leftClick", leftClick);
-                command.Parameters.AddWithValue("@rightClick", rightClick);
-                command.ExecuteNonQuery();
-            }
-        }
-
-        private void UpdateKeyDistribution(int keyCode, int count)
-        {
-            // 先查询是否已存在该按键
-            string checkQuery = "SELECT press_count FROM key_distribution WHERE key_code = @keyCode";
-            
-            int existingCount = 0;
-            using (var command = new SQLiteCommand(checkQuery, (_fileManager as FileManager).GetConnection()))
-            {
-                command.Parameters.AddWithValue("@keyCode", keyCode);
-                object result = command.ExecuteScalar();
-                if (result != null && result != DBNull.Value)
-                {
-                    existingCount = Convert.ToInt32(result);
-                }
-            }
-            
-            // 插入或更新数据
-            string query = @"
-                INSERT OR REPLACE INTO key_distribution (key_code, key_name, press_count)
-                VALUES (@keyCode, @keyName, @pressCount);
-            ";
-
-            using (var command = new SQLiteCommand(query, (_fileManager as FileManager).GetConnection()))
-            {
-                command.Parameters.AddWithValue("@keyCode", keyCode);
-                command.Parameters.AddWithValue("@keyName", "Home");
-                command.Parameters.AddWithValue("@pressCount", existingCount + count);
-                command.ExecuteNonQuery();
-            }
-        }
+        private bool _isExiting = false;
 
         private void OnExit(object sender, EventArgs e)
         {
@@ -759,23 +546,31 @@ namespace MouseClickRecorder
                 Logger.Instance().Log("Unhooking mouse hook");
                 UnhookWindowsHookEx(_mouseHookID);
             }
-
             if (_keyboardHookID != IntPtr.Zero)
             {
                 Logger.Instance().Log("Unhooking keyboard hook");
                 UnhookWindowsHookEx(_keyboardHookID);
             }
-            
-            // Close database connection
-            (_fileManager as FileManager)?.CloseConnection();
-            
+
+            _isExiting = true;
             Logger.Instance().Log("Exiting application");
-            Logger.Instance().Dispose();
-            Environment.Exit(0);
+            Application.Exit();
         }
+
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
-            e.Cancel = true;
+            if (!_isExiting)
+            {
+                e.Cancel = true;
+                this.WindowState = FormWindowState.Minimized;
+                this.Hide();
+                trayIcon.Visible = true;
+                isWindowVisible = false;
+            }
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
             this.WindowState = FormWindowState.Minimized;
             this.Hide();
             trayIcon.Visible = true;
@@ -786,25 +581,10 @@ namespace MouseClickRecorder
             using (Process curProcess = Process.GetCurrentProcess())
             using (ProcessModule curModule = curProcess.MainModule)
             {
-                return SetWindowsHookEx(hookType, proc, GetModuleHandle(curModule.ModuleName), 0);
+                return SetWindowsHookEx(hookType, proc,
+                    GetModuleHandle(curModule.ModuleName), 0);
             }
         }
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelProc lpfn, IntPtr hMod, uint dwThreadId);
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr GetModuleHandle(string lpModuleName);
-
-        private const int WH_MOUSE_LL = 14;
-        private const int WH_KEYBOARD_LL = 13;
 
         private IntPtr MouseHookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
@@ -908,10 +688,7 @@ namespace MouseClickRecorder
             }
         }
 
-        // 用于存储每日数据的字典，提高查找效率
-        private Dictionary<string, DataGridViewRow> dailyDataRows = new Dictionary<string, DataGridViewRow>();
-        
-        // 用于缓存总计数据
+        // 用于缓存总计数据（所有历史数据的累计）
         private int totalKeyboardPress = 0;
         private int totalMouseLeftClick = 0;
         private int totalMouseRightClick = 0;
@@ -919,8 +696,16 @@ namespace MouseClickRecorder
         // 用于标记是否需要更新UI
         private bool uiUpdateNeeded = false;
         
+        // 用于跟踪窗口是否可见（最小化到托盘时不可见）
+        private bool isWindowVisible = true;
+        
         // 用于定时更新UI的定时器
         private System.Windows.Forms.Timer refreshTimer;
+        
+        // 用于限制MouseMove事件处理频率
+        private DateTime lastMouseMoveTime = DateTime.MinValue;
+        private const int MouseMoveIntervalMs = 100; // 100ms间隔
+        private int lastTooltipIndex = -1; // 记录上次显示的tooltip索引，避免重复渲染
 
         private void AddOrUpdateRow(DateTime date, int keyboardPress, int leftClick, int rightClick)
         {
@@ -962,28 +747,26 @@ namespace MouseClickRecorder
                 // 限制表格只显示365天的数据
                 if (dailyDataRows.Count > 365)
                 {
-                    // 找出最旧的日期
-                    string oldestDate = dailyDataRows.Keys.Min();
-                    if (dailyDataRows.TryGetValue(oldestDate, out DataGridViewRow oldestRow))
+                    // 找到最早的日期并删除
+                    var oldestDate = dailyDataRows.Keys.OrderBy(d => d).First();
+                    if (dailyDataRows.TryGetValue(oldestDate, out DataGridViewRow oldRow))
                     {
-                        // 从总计中减去旧行的数据
-                        totalKeyboardPress -= Convert.ToInt32(oldestRow.Cells["KeyboardPress"].Value);
-                        totalMouseLeftClick -= Convert.ToInt32(oldestRow.Cells["MouseLeftClick"].Value);
-                        totalMouseRightClick -= Convert.ToInt32(oldestRow.Cells["MouseRightClick"].Value);
-                        
-                        // 移除旧行
-                        eventLogGridView.Rows.Remove(oldestRow);
+                        // 注意：不再从总计中减去旧值，因为总计应该包含所有历史数据
+                        eventLogGridView.Rows.Remove(oldRow);
                         dailyDataRows.Remove(oldestDate);
                     }
                 }
                 
-                eventLogGridView.ResumeLayout();
+                // 按日期降序排序
+                SortEventLog();
+                
+                eventLogGridView.ResumeLayout(false);
                 
                 Logger.Instance().Log($"Added new row for {dateStr}: KeyboardPress={keyboardPress}, MouseLeftClick={leftClick}, MouseRightClick={rightClick}");
             }
 
             // 更新累计和显示（历史总数）
-            if (summaryPicControls != null)
+            if (summaryPicControls != null && isWindowVisible)
             {
                 summaryPicControls.Item2.Text = totalKeyboardPress.ToString("N0");
                 summaryPicControls.Item4.Text = totalMouseLeftClick.ToString("N0");
@@ -993,6 +776,12 @@ namespace MouseClickRecorder
 
         private void RefreshTimer_Tick(object sender, EventArgs e)
         {
+            // 如果窗口不可见（最小化到托盘），跳过UI更新
+            if (!isWindowVisible)
+            {
+                return;
+            }
+            
             // 只有在数据真正变化且需要更新时才操作 UI
             if (uiUpdateNeeded)
             {
@@ -1128,9 +917,9 @@ namespace MouseClickRecorder
                 }
 
                 // 添加数据系列，启用抗锯齿
-                formsPlot.Plot.AddScatter(x.ToArray(), yKeyboard.ToArray(), Color.RoyalBlue, 2, markerShape: MarkerShape.filledCircle, label: "键盘按键");
-                formsPlot.Plot.AddScatter(x.ToArray(), yLeftClick.ToArray(), Color.ForestGreen, 2, markerShape: MarkerShape.filledCircle, label: "鼠标左键");
-                formsPlot.Plot.AddScatter(x.ToArray(), yRightClick.ToArray(), Color.Crimson, 2, markerShape: MarkerShape.filledCircle, label: "鼠标右键");
+                formsPlot.Plot.AddScatter(x.ToArray(), yKeyboard.ToArray(), Color.RoyalBlue, 2, label: "键盘按键");
+                formsPlot.Plot.AddScatter(x.ToArray(), yLeftClick.ToArray(), Color.ForestGreen, 2, label: "鼠标左键");
+                formsPlot.Plot.AddScatter(x.ToArray(), yRightClick.ToArray(), Color.Crimson, 2, label: "鼠标右键");
 
                 // 恢复原来的配色
                 formsPlot.Plot.Style(ScottPlot.Style.Default);
@@ -1152,6 +941,20 @@ namespace MouseClickRecorder
                 // 鼠标移动时更新提示
                 formsPlot.MouseMove += (sender, e) =>
                 {
+                    // 如果窗口不可见（最小化到托盘），跳过鼠标事件处理
+                    if (!isWindowVisible)
+                    {
+                        return;
+                    }
+                    
+                    // 限制处理频率，避免过于频繁的重绘
+                    DateTime now = DateTime.Now;
+                    if ((now - lastMouseMoveTime).TotalMilliseconds < MouseMoveIntervalMs)
+                    {
+                        return;
+                    }
+                    lastMouseMoveTime = now;
+                    
                     if (chartXValues != null && chartXValues.Count > 0)
                     {
                         // 从鼠标事件获取坐标并转换为图表坐标
@@ -1163,6 +966,13 @@ namespace MouseClickRecorder
                         // 确保索引在有效范围内
                         if (index >= 0 && index < chartXValues.Count)
                         {
+                            // 如果索引没有变化，不需要重新渲染
+                            if (index == lastTooltipIndex && tooltipText != null)
+                            {
+                                return;
+                            }
+                            lastTooltipIndex = index;
+                            
                             string dateLabel = chartLabels[index];
                             string keyboard = ((int)chartYKeyboard[index]).ToString("N0");
                             string leftClick = ((int)chartYLeftClick[index]).ToString("N0");
@@ -1204,6 +1014,11 @@ namespace MouseClickRecorder
 
         #region PInvoke
 
+        private delegate IntPtr LowLevelProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+        private const int WH_MOUSE_LL = 14;
+        private const int WH_KEYBOARD_LL = 13;
+
         private enum MouseMessages
         {
             WM_LBUTTONDOWN = 0x0201,
@@ -1214,6 +1029,19 @@ namespace MouseClickRecorder
         private const int WM_SYSKEYDOWN = 0x0104;
         private const int WM_KEYUP = 0x0101;
         private const int WM_SYSKEYUP = 0x0105;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
 
         #endregion
     }

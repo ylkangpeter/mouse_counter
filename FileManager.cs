@@ -88,7 +88,7 @@ namespace MouseClickRecorder
 
         public void LoadDataFromFile(MainForm form, ref DateTime currentDate)
         {
-            // 只加载最近30天的数据
+            // 只加载最近30天的数据到表格
             DateTime thirtyDaysAgo = DateTime.Now.Date.AddDays(-30);
             string query = "SELECT date, keyboard_press, mouse_left_click, mouse_right_click FROM click_data WHERE date >= @thirtyDaysAgo ORDER BY date DESC";
 
@@ -117,6 +117,30 @@ namespace MouseClickRecorder
                     }
                 }
             }
+        }
+
+        public (int, int, int) GetTotalCounts()
+        {
+            // 计算所有历史数据的累计总和
+            string query = "SELECT SUM(keyboard_press) as total_keyboard, SUM(mouse_left_click) as total_left, SUM(mouse_right_click) as total_right FROM click_data";
+            int totalKeyboard = 0;
+            int totalLeft = 0;
+            int totalRight = 0;
+
+            using (SQLiteCommand command = new SQLiteCommand(query, _connection))
+            {
+                using (SQLiteDataReader reader = command.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        totalKeyboard = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader[0]);
+                        totalLeft = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader[1]);
+                        totalRight = reader.IsDBNull(2) ? 0 : Convert.ToInt32(reader[2]);
+                    }
+                }
+            }
+
+            return (totalKeyboard, totalLeft, totalRight);
         }
 
         public string[,] LoadDataForChart(int days)

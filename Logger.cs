@@ -59,7 +59,7 @@ namespace MouseClickRecorder
                     InitializeWriter();
                 }
                 _writer.WriteLine($"{DateTime.Now}: {message}");
-                _writer.Flush(); // Ensure the log message is written immediately
+                // 移除 Flush() 以提高性能，让系统决定何时写入磁盘
             }
             catch (Exception ex)
             {

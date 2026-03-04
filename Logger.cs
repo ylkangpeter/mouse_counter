@@ -40,11 +40,6 @@ namespace MouseClickRecorder
 
         private void InitializeWriter()
         {
-            if (FileManager.IsFileLocked(_logFilePath))
-            {
-                MessageBox.Show("Data file is currently in use by another process. Application will not start.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                Application.Exit(); // Exit application
-            }
             try
             {
                 _writer = new StreamWriter(_logFilePath, true);

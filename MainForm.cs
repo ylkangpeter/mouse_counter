@@ -72,6 +72,26 @@ namespace MouseClickRecorder
             
             _syncTimer.Tick += (sender, e) => 
             {
+                // 检查日期是否变更
+                DateTime now = DateTime.Now.Date;
+                if (now != currentDate)
+                {
+                    // 日期变更，先保存旧日期的数据
+                    _fileManager.SaveDataToFile(false, eventLogGridView, currentDate);
+                    
+                    // 更新日期并重置计数器
+                    currentDate = now;
+                    keyboardPressCount = 0;
+                    mouseLeftClickCount = 0;
+                    mouseRightClickCount = 0;
+                    
+                    // 标记需要更新UI
+                    uiUpdateNeeded = true;
+                    
+                    Logger.Instance().Log($"Date changed to {currentDate}, reset counters");
+                }
+                
+                // 保存当前日期的数据
                 _fileManager.SaveDataToFile(false, eventLogGridView, currentDate);
                 _fileManager.SaveKeyDistribution(keyDistribution);
             };

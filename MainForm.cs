@@ -146,13 +146,14 @@ namespace MouseClickRecorder
             refreshTimer.Tick += RefreshTimer_Tick;
             refreshTimer.Start();
 
-            _fileManager.LoadDataFromFile(this, ref currentDate);
-
-            // 从数据库获取所有历史数据的累计总和
+            // 先从数据库获取所有历史数据的累计总和
             var totalCounts = _fileManager.GetTotalCounts();
             totalKeyboardPress = totalCounts.Item1;
             totalMouseLeftClick = totalCounts.Item2;
             totalMouseRightClick = totalCounts.Item3;
+
+            // 然后加载最近30天的数据到表格
+            _fileManager.LoadDataFromFile(this, ref currentDate);
 
             _mouseProc = MouseHookCallback;
             _keyboardProc = KeyboardHookCallback;
@@ -587,6 +588,12 @@ namespace MouseClickRecorder
                 trayIcon.Visible = true;
                 isWindowVisible = false;
             }
+            else
+            {
+                // 确保退出时保存数据
+                _fileManager.SaveDataToFile(true, eventLogGridView, currentDate);
+                _fileManager.SaveKeyDistribution(keyDistribution);
+            }
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -699,12 +706,12 @@ namespace MouseClickRecorder
             {
                 eventLogGridView.Invoke(new Action(() =>
                 {
-                    AddOrUpdateRow(date, keyboardPress, leftClick, rightClick);
+                    AddOrUpdateRow(date, keyboardPress, leftClick, rightClick, false);
                 }));
             }
             else
             {
-                AddOrUpdateRow(date, keyboardPress, leftClick, rightClick);
+                AddOrUpdateRow(date, keyboardPress, leftClick, rightClick, false);
             }
         }
 
@@ -727,7 +734,7 @@ namespace MouseClickRecorder
         private const int MouseMoveIntervalMs = 100; // 100ms间隔
         private int lastTooltipIndex = -1; // 记录上次显示的tooltip索引，避免重复渲染
 
-        private void AddOrUpdateRow(DateTime date, int keyboardPress, int leftClick, int rightClick)
+        private void AddOrUpdateRow(DateTime date, int keyboardPress, int leftClick, int rightClick, bool updateTotal = true)
         {
             string dateStr = date.ToString("yyyy-MM-dd");
 
@@ -742,9 +749,12 @@ namespace MouseClickRecorder
                 int oldLeftClick = Convert.ToInt32(row.Cells["MouseLeftClick"].Value);
                 int oldRightClick = Convert.ToInt32(row.Cells["MouseRightClick"].Value);
                 
-                totalKeyboardPress += (keyboardPress - oldKeyboardPress);
-                totalMouseLeftClick += (leftClick - oldLeftClick);
-                totalMouseRightClick += (rightClick - oldRightClick);
+                if (updateTotal)
+                {
+                    totalKeyboardPress += (keyboardPress - oldKeyboardPress);
+                    totalMouseLeftClick += (leftClick - oldLeftClick);
+                    totalMouseRightClick += (rightClick - oldRightClick);
+                }
                 
                 // 更新单元格值
                 row.Cells["KeyboardPress"].Value = keyboardPress;
@@ -760,9 +770,12 @@ namespace MouseClickRecorder
                 dailyDataRows[dateStr] = newRow;
                 
                 // 更新总计
-                totalKeyboardPress += keyboardPress;
-                totalMouseLeftClick += leftClick;
-                totalMouseRightClick += rightClick;
+                if (updateTotal)
+                {
+                    totalKeyboardPress += keyboardPress;
+                    totalMouseLeftClick += leftClick;
+                    totalMouseRightClick += rightClick;
+                }
                 
                 // 限制表格只显示365天的数据
                 if (dailyDataRows.Count > 365)

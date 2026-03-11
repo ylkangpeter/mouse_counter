@@ -155,6 +155,9 @@ namespace MouseClickRecorder
             // 然后加载最近30天的数据到表格
             _fileManager.LoadDataFromFile(this, ref currentDate);
 
+            // 标记需要更新UI，确保启动时更新表格
+            uiUpdateNeeded = true;
+
             _mouseProc = MouseHookCallback;
             _keyboardProc = KeyboardHookCallback;
             _mouseHookID = SetHook(_mouseProc, WH_MOUSE_LL);

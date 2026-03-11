@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Data.SQLite;
 using System.IO;
 using System.Linq;
@@ -10,7 +10,6 @@ namespace MouseClickRecorder
     {
         private string DataFileName = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mouse_clicker.db");
         private SQLiteConnection _connection;
-
 
         public FileManager()
         {
@@ -25,10 +24,9 @@ namespace MouseClickRecorder
                 SQLiteConnection.CreateFile(DataFileName);
             }
 
-            _connection = new SQLiteConnection($"Data Source={DataFileName};Version=3;");
+            _connection = new SQLiteConnection(GetConnectionString());
             _connection.Open();
 
-            // Create table if not exists
             string createTableQuery = @"
                 CREATE TABLE IF NOT EXISTS click_data (
                     date TEXT PRIMARY KEY,
@@ -43,7 +41,6 @@ namespace MouseClickRecorder
                 command.ExecuteNonQuery();
             }
 
-            // Create table for key distribution
             string createKeyDistributionTableQuery = @"
                 CREATE TABLE IF NOT EXISTS key_distribution (
                     key_code INTEGER,
@@ -61,22 +58,24 @@ namespace MouseClickRecorder
 
         public void SaveDataToFile(bool forceSave, DataGridView eventLogGridView, DateTime currentDate)
         {
-            // 只保存当天的数据，历史数据不会变更
             string todayStr = currentDate.ToString("yyyy-MM-dd");
-            
-            // 使用事务批量提交，减少磁盘IO
+
             using (var transaction = _connection.BeginTransaction())
             {
                 try
                 {
                     foreach (DataGridViewRow row in eventLogGridView.Rows)
                     {
-                        if (row.IsNewRow) continue;
+                        if (row.IsNewRow)
+                        {
+                            continue;
+                        }
 
                         string date = row.Cells["Date"].Value.ToString();
-                        
-                        // 只保存当天的数据
-                        if (date != todayStr && !forceSave) continue;
+                        if (date != todayStr && !forceSave)
+                        {
+                            continue;
+                        }
 
                         int keyboardPress = int.Parse(row.Cells["KeyboardPress"].Value.ToString());
                         int leftClick = int.Parse(row.Cells["MouseLeftClick"].Value.ToString());
@@ -96,8 +95,7 @@ namespace MouseClickRecorder
                             command.ExecuteNonQuery();
                         }
                     }
-                    
-                    // 提交事务
+
                     transaction.Commit();
                 }
                 catch
@@ -110,13 +108,13 @@ namespace MouseClickRecorder
 
         public void LoadDataFromFile(MainForm form, ref DateTime currentDate)
         {
-            // 只加载最近30天的数据到表格
-            DateTime thirtyDaysAgo = DateTime.Now.Date.AddDays(-30);
-            string query = "SELECT date, keyboard_press, mouse_left_click, mouse_right_click FROM click_data WHERE date >= @thirtyDaysAgo ORDER BY date DESC";
+            int maxDaysToShow = new ConfigManager().Config.MaxDaysToShow;
+            DateTime earliestDate = DateTime.Now.Date.AddDays(-(maxDaysToShow - 1));
+            string query = "SELECT date, keyboard_press, mouse_left_click, mouse_right_click FROM click_data WHERE date >= @earliestDate ORDER BY date DESC";
 
             using (SQLiteCommand command = new SQLiteCommand(query, _connection))
             {
-                command.Parameters.AddWithValue("@thirtyDaysAgo", thirtyDaysAgo.ToString("yyyy-MM-dd"));
+                command.Parameters.AddWithValue("@earliestDate", earliestDate.ToString("yyyy-MM-dd"));
                 using (SQLiteDataReader reader = command.ExecuteReader())
                 {
                     while (reader.Read())
@@ -132,9 +130,7 @@ namespace MouseClickRecorder
                         }
                         else
                         {
-                            form.keyboardPressCount = keyboardPress;
-                            form.mouseLeftClickCount = leftClick;
-                            form.mouseRightClickCount = rightClick;
+                            form.SetCurrentDayData(keyboardPress, leftClick, rightClick);
                         }
                     }
                 }
@@ -143,7 +139,6 @@ namespace MouseClickRecorder
 
         public (int, int, int) GetTotalCounts()
         {
-            // 计算所有历史数据的累计总和
             string query = "SELECT SUM(keyboard_press) as total_keyboard, SUM(mouse_left_click) as total_left, SUM(mouse_right_click) as total_right FROM click_data";
             int totalKeyboard = 0;
             int totalLeft = 0;
@@ -191,7 +186,6 @@ namespace MouseClickRecorder
 
         public string[,] LoadDataForChartByWeek()
         {
-            // 使用SQLite的strftime函数按周分组，获取每周的最大值
             string query = @"
                 SELECT 
                     strftime('%Y-%W', date) as week,
@@ -203,7 +197,6 @@ namespace MouseClickRecorder
                 ORDER BY week ASC
             ";
 
-            // 先获取数据行数
             string countQuery = @"
                 SELECT COUNT(DISTINCT strftime('%Y-%W', date)) as count
                 FROM click_data
@@ -242,10 +235,8 @@ namespace MouseClickRecorder
 
         public string[,] LoadLastYearDataByWeek()
         {
-            // 计算一年前的日期
             string oneYearAgo = DateTime.Now.AddYears(-1).ToString("yyyy-MM-dd");
-            
-            // 使用SQLite的strftime函数按周分组，获取最近一年每周的最大值
+
             string query = @"
                 SELECT 
                     strftime('%Y-%W', date) as week,
@@ -258,7 +249,6 @@ namespace MouseClickRecorder
                 ORDER BY week ASC
             ";
 
-            // 先获取数据行数
             string countQuery = @"
                 SELECT COUNT(DISTINCT strftime('%Y-%W', date)) as count
                 FROM click_data
@@ -298,8 +288,6 @@ namespace MouseClickRecorder
             return resultArray;
         }
 
-
-
         public void AddOrUpdateRow(DataGridView dataGridView, DateTime date, int keyboardPress, int leftClick, int rightClick)
         {
             var row = dataGridView.Rows
@@ -317,7 +305,6 @@ namespace MouseClickRecorder
                 row.Cells[3].Value = rightClick;
             }
 
-            // Also update in database
             string insertQuery = @"
                 INSERT OR REPLACE INTO click_data (date, keyboard_press, mouse_left_click, mouse_right_click)
                 VALUES (@date, @keyboardPress, @leftClick, @rightClick);
@@ -335,10 +322,8 @@ namespace MouseClickRecorder
 
         public void SaveKeyDistribution(System.Collections.Generic.Dictionary<int, int> keyDistribution)
         {
-            // 创建字典的副本，避免在枚举时被修改
             var keyDistributionCopy = new System.Collections.Generic.Dictionary<int, int>(keyDistribution);
-            
-            // 使用事务批量提交，减少磁盘IO
+
             using (var transaction = _connection.BeginTransaction())
             {
                 try
@@ -362,8 +347,7 @@ namespace MouseClickRecorder
                             command.ExecuteNonQuery();
                         }
                     }
-                    
-                    // 提交事务
+
                     transaction.Commit();
                 }
                 catch
@@ -416,8 +400,6 @@ namespace MouseClickRecorder
             return keyDistributionList;
         }
 
-
-
         private string GetKeyName(int keyCode)
         {
             try
@@ -434,6 +416,11 @@ namespace MouseClickRecorder
         public SQLiteConnection GetConnection()
         {
             return _connection;
+        }
+
+        public string GetConnectionString()
+        {
+            return $"Data Source={DataFileName};Version=3;";
         }
 
         public void CloseConnection()

@@ -106,6 +106,23 @@ namespace MouseClickRecorder
             }
         }
 
+        public void SaveCurrentDayData(DateTime date, int keyboardPress, int leftClick, int rightClick)
+        {
+            const string insertQuery = @"
+                INSERT OR REPLACE INTO click_data (date, keyboard_press, mouse_left_click, mouse_right_click)
+                VALUES (@date, @keyboardPress, @leftClick, @rightClick);
+            ";
+
+            using (SQLiteCommand command = new SQLiteCommand(insertQuery, _connection))
+            {
+                command.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                command.Parameters.AddWithValue("@keyboardPress", keyboardPress);
+                command.Parameters.AddWithValue("@leftClick", leftClick);
+                command.Parameters.AddWithValue("@rightClick", rightClick);
+                command.ExecuteNonQuery();
+            }
+        }
+
         public void LoadDataFromFile(MainForm form, ref DateTime currentDate)
         {
             int maxDaysToShow = new ConfigManager().Config.MaxDaysToShow;

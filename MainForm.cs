@@ -48,6 +48,9 @@ namespace MouseClickRecorder
         private List<double> chartYRightClick;
         private List<string> chartLabels;
         private ScottPlot.Plottable.Text _chartTooltipText;
+        private bool _statsDirty;
+        private bool _keyDistributionDirty;
+        private int _pendingEventCount;
 
         public MainForm()
         {
@@ -74,20 +77,21 @@ namespace MouseClickRecorder
                 DateTime now = DateTime.Now.Date;
                 if (now != currentDate)
                 {
-                    _fileManager.SaveDataToFile(false, eventLogGridView, currentDate);
+                    PersistStateIfNeeded(true);
                     
                     currentDate = now;
                     keyboardPressCount = 0;
                     mouseLeftClickCount = 0;
                     mouseRightClickCount = 0;
+                    _pendingEventCount = 0;
+                    _statsDirty = true;
                     
                     uiUpdateNeeded = true;
                     
                     Logger.Instance().Log($"Date changed to {currentDate}, reset counters");
                 }
                 
-                _fileManager.SaveDataToFile(false, eventLogGridView, currentDate);
-                _fileManager.SaveKeyDistribution(keyDistribution);
+                PersistStateIfNeeded(false);
             };
             _syncTimer.Start();
 
@@ -487,6 +491,8 @@ namespace MouseClickRecorder
                     totalKeyboardPress = totalCounts.Item1;
                     totalMouseLeftClick = totalCounts.Item2;
                     totalMouseRightClick = totalCounts.Item3;
+                    keyDistribution = _fileManager.LoadKeyDistribution();
+                    _keyDistributionDirty = false;
                     
                     if (summaryPicControls != null)
                     {
@@ -519,8 +525,7 @@ namespace MouseClickRecorder
         {
             Logger.Instance().Log("OnExit triggered");
 
-            _fileManager.SaveDataToFile(true, eventLogGridView, currentDate);
-            _fileManager.SaveKeyDistribution(keyDistribution);
+            PersistStateIfNeeded(true);
 
             trayIcon.Visible = false;
 
@@ -552,8 +557,11 @@ namespace MouseClickRecorder
             }
             else
             {
-                _fileManager.SaveDataToFile(true, eventLogGridView, currentDate);
-                _fileManager.SaveKeyDistribution(keyDistribution);
+                PersistStateIfNeeded(true);
+                _syncTimer?.Stop();
+                refreshTimer?.Stop();
+                _fileManager.CloseConnection();
+                Logger.Instance().Dispose();
             }
         }
 
@@ -609,6 +617,7 @@ namespace MouseClickRecorder
                     if (!keyStates.ContainsKey(vkCode) || !keyStates[vkCode])
                     {
                         keyboardPressCount++;
+                        _keyDistributionDirty = true;
                         
                         if (keyDistribution.ContainsKey(vkCode))
                         {
@@ -635,7 +644,13 @@ namespace MouseClickRecorder
         private void CheckDateAndUpdateLog()
         {
             uiUpdateNeeded = true;
-            
+            _statsDirty = true;
+            _pendingEventCount++;
+
+            if (_pendingEventCount >= _configManager.Config.SyncEventThreshold)
+            {
+                PersistStateIfNeeded(false);
+            }
         }
 
         private void EnsureCurrentDate()
@@ -646,12 +661,14 @@ namespace MouseClickRecorder
                 return;
             }
 
-            _fileManager.SaveDataToFile(false, eventLogGridView, currentDate);
+            PersistStateIfNeeded(true);
 
             currentDate = now;
             keyboardPressCount = 0;
             mouseLeftClickCount = 0;
             mouseRightClickCount = 0;
+            _pendingEventCount = 0;
+            _statsDirty = true;
             uiUpdateNeeded = true;
 
             Logger.Instance().Log($"Date changed to {currentDate}, reset counters");
@@ -782,6 +799,26 @@ namespace MouseClickRecorder
             eventLogGridView.Sort(eventLogGridView.Columns["Date"], System.ComponentModel.ListSortDirection.Descending);
         }
 
+        private void PersistStateIfNeeded(bool forceSave)
+        {
+            if (forceSave || _statsDirty)
+            {
+                _fileManager.SaveCurrentDayData(currentDate, keyboardPressCount, mouseLeftClickCount, mouseRightClickCount);
+                _statsDirty = false;
+            }
+
+            if (forceSave || _keyDistributionDirty)
+            {
+                _fileManager.SaveKeyDistribution(keyDistribution);
+                _keyDistributionDirty = false;
+            }
+
+            if (forceSave || _pendingEventCount > 0)
+            {
+                _pendingEventCount = 0;
+            }
+        }
+
 
         private void OnStartupToggle(object sender, EventArgs e)
         {
@@ -799,9 +836,14 @@ namespace MouseClickRecorder
 
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(keyName, true))
             {
+                if (key == null)
+                {
+                    throw new InvalidOperationException("Unable to access the startup registry key.");
+                }
+
                 if (enabled)
                 {
-                    key.SetValue("MouseClickRecorder", appPath);
+                    key.SetValue("MouseClickRecorder", $"\"{appPath}\"");
                 }
                 else
                 {
@@ -815,7 +857,7 @@ namespace MouseClickRecorder
             string keyName = @"Software\Microsoft\Windows\CurrentVersion\Run";
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(keyName))
             {
-                return key.GetValue(appName) != null;
+                return key?.GetValue(appName) != null;
             }
         }
 

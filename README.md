@@ -137,8 +137,8 @@ log.txt
 
 ## 系统要求
 
-- 操作系统：Windows 7或更高版本
-- .NET版本：.NET 5.0或更高版本
+- 操作系统：Windows 10或更高版本
+- .NET版本：.NET 8.0 Desktop Runtime或更高版本
 - 数据库：SQLite（程序内置）
 
 ## 注意事项
@@ -151,7 +151,7 @@ log.txt
 ## 技术栈
 
 - 编程语言：C#
-- 框架：.NET 5.0 Windows Forms
+- 框架：.NET 8.0 Windows Forms
 - 数据库：SQLite
 - 图表：Windows Forms Data Visualization
 
